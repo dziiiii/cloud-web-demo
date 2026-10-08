@@ -1,0 +1,59 @@
+name: Publish minimal NW6 static release
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: nw6-static-release
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.repository == 'dziiiii/cloud-web-demo' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Offline tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Build allowlisted minimal artifact
+        id: build
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          digest=$(python3 -m deploy.build --sha "$SOURCE_SHA" --output "$RUNNER_TEMP/nw6-build")
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: nw6-static-release
+    permissions:
+      contents: write
+    steps:
+      - name: Require explicitly reviewed publication settings
+        env:
+          APPROVAL: ${{ vars.NW6_STATIC_RELEASE_APPROVED }}
+        run: |
+          test "$APPROVAL" = 'approved-after-review'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Rebuild same immutable source
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 -m deploy.build --sha "$SOURCE_SHA" --output "$RUNNER_TEMP/nw6-publish"
+      - name: Publish only static data to fixed release branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          python3 -m deploy.publish --directory "$RUNNER_TEMP/nw6-publish" --expected-digest "$EXPECTED_DIGEST"

@@ -18,7 +18,7 @@
 3. publish job经nw6-static-release Environment和批准变量门禁，重建相同SHA并比对build job摘要。
 4. 使用GitHub自动生成的短期GITHUB_TOKEN发布固定分支。没有新增repository Secrets、API key、OIDC或SSH私钥。
    实际contents:write是仓库级权限，不能宣称token仅限nw6-release分支。需要父任务审查分支保护与Environment设置。
-5. 服务器timer约每5分钟匿名HTTPS检查固定release ref。先得到完整release commit，manifest和archive都由该同一commit下载。
+5. 服务器timer约每5分钟匿名HTTPS检查固定release ref。先得到完整release commit，commit/root tree核验后，manifest与archive由同一commit的Contents JSON/base64读取。
 6. 下载无重定向、无认证头，无任意URL或脚本执行。服务端不绑定页面模板，仅验证唯一普通index.html及manifest/压缩包的SHA256与长度；更新仓库index.html文字无需重装服务端程序。
 7. 在任何修改前检验当前页与本机TLS健康；备份原文件、持久化journal、单文件原子替换。
 8. 本机127.0.0.1:443连接，TLS验证haoduoo.com，GET /nw6，要求200和完整响应SHA256正确；失败原子恢复旧文件并复验。
@@ -29,7 +29,7 @@
 - 只给nw6子目录所需权限，sites父目录保持root:root755。程序仅写index.html，但OS目录写权限不等于内核只允许一个文件名。
 - 服务单元ProtectSystem=strict，ReadWritePaths只开放nw6目录及专用state/backups；私有/tmp和/var/tmp只读。
 - 发布分支成功不等于站点已上线；需等待timer并核对服务结果和公网页面。
-- 无认证GitHub API通常有速率限制。HTTP200到github.com不证明api.github.com/raw.githubusercontent.com也可访问；三者需后续验证。404/限流/下载失败保留现页。
+- 无认证GitHub API通常有速率限制。HTTP200到github.com不证明api.github.com/Contents API也可访问；三者需后续验证。404/限流/下载失败保留现页。
 - 20个备份容量上限，满后停止并请求管理员审查清理；不自动删除备份或递归清理未知文件。
 - 同一服务使用文件锁；管理员仍应避免与timer并发修改同一页。不会声称能阻挡所有root级竞态操作。
 - 回滚恢复文件内容及0644。替换inode由独立用户创建，不能恢复原root UID；此所有权差异必须纳入安装授权。
@@ -53,3 +53,6 @@ pending保存旧/新active及摘要。journal存在意味着未完成提交，�
 删除后fsync失败时页面与active均保留新版本，报告commit cleanup durability unconfirmed，不虚称已回滚；管理员需确认持久化，下次无journal时验证active与页面一致。
 真实断电落盘顺序需目标验收；离线故障注入不代表硬件断电验证。
 RestrictSUIDSGID为上游242新增，不适用于239，已明确移除；其他保护项保持原样。安装前必须检测未知指令并验证实际隔离，禁止用本地257结果替代。
+
+
+第6轮当前下载通路、退避、测试数及真实证据边界以review/STATUS.md为准。原下载段落为历史草案；现有程序不访问raw域名或响应下载URL。本轮69项发布器/协议测试通过，新目标3.6与产物实下载待验证。

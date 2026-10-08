@@ -1,4 +1,5 @@
 """Offline only: temporary files, fake downloads and fake health responses."""
+import base64
 import copy
 import gzip
 import hashlib
@@ -14,7 +15,7 @@ from unittest import mock
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from deploy import protocol as p
-from deploy.puller import Puller,REF_URL,fetch_fixed
+from deploy.puller import Puller,REF_URL,fetch_fixed,API,blob_sha
 
 SOURCE='a'*40
 RELEASE='b'*40
@@ -33,9 +34,11 @@ class Tests(unittest.TestCase):
     def fetch(self,url,limit):
         self.calls.append(url)
         if url==REF_URL:return json.dumps({'object':{'sha':RELEASE,'type':'commit'}}).encode()
-        prefix='https://raw.githubusercontent.com/'+p.REPO+'/'+RELEASE+'/'
-        if url==prefix+'release.json':return json.dumps(self.manifest).encode()
-        if url==prefix+'site.tar.gz':return self.archive
+        files={'release.json':json.dumps(self.manifest).encode(),'site.tar.gz':self.archive}
+        if url==API+'/git/commits/'+RELEASE:return json.dumps({'sha':RELEASE,'tree':{'sha':'d'*40}}).encode()
+        if url==API+'/git/trees/'+'d'*40:return json.dumps({'sha':'d'*40,'truncated':False,'tree':[{'path':n,'mode':'100644','type':'blob','sha':blob_sha(v),'size':len(v)} for n,v in files.items()]}).encode()
+        for name,data in files.items():
+            if url==API+'/contents/'+name+'?ref='+RELEASE:return json.dumps({'name':name,'path':name,'type':'file','encoding':'base64','size':len(data),'sha':blob_sha(data),'content':base64.b64encode(data).decode()}).encode()
         raise AssertionError('unexpected URL')
     def healthy(self,expected):
         return p.digest((self.site/'index.html').read_bytes())==expected
@@ -66,11 +69,12 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.run_puller()['status'],'unchanged')
     def test_downloads_pinned_to_same_commit(self):
         self.run_puller()
-        self.assertEqual(len(self.calls),3)
-        self.assertTrue(all('/'+RELEASE+'/' in u for u in self.calls[1:]))
+        self.assertEqual(len(self.calls),5)
+        self.assertEqual(self.calls[1],API+'/git/commits/'+RELEASE)
+        self.assertTrue(all('?ref='+RELEASE in u for u in self.calls[3:]))
         self.assertFalse(any('/nw6-release/' in u for u in self.calls[1:]))
     def test_download_failure_keeps_current(self):
-        for failure_at in range(3):
+        for failure_at in range(5):
             self.calls=[]
             def fail(url,limit):
                 if len(self.calls)==failure_at:raise TimeoutError('simulated download timeout')
@@ -267,7 +271,9 @@ class Tests(unittest.TestCase):
         v1=b'<html><body>Version ONE</body></html>'
         v2=b'<html><body>Version TWO changed text</body></html>'
         self.manifest,self.archive=p.build(SOURCE,v1);self.run_puller();self.assert_consistent(v1)
-        self.manifest,self.archive=p.build('c'*40,v2);self.run_puller();self.assert_consistent(v2)
+        self.manifest,self.archive=p.build('c'*40,v2)
+        with mock.patch.dict(globals(),{'RELEASE':'e'*40}):self.run_puller()
+        self.assert_consistent(v2)
         self.assertEqual(installed,((ROOT/'deploy/puller.py').read_bytes(),(ROOT/'deploy/protocol.py').read_bytes()))
     def test_build_reads_fixed_repository_entry(self):
         entry=ROOT/'index.html';original=entry.read_bytes()

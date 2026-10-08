@@ -19,8 +19,8 @@ DIGEST = re.compile(r'^[0-9a-f]{64}$')
 class ReleaseError(ValueError): pass
 
 def digest(data): return hashlib.sha256(data).hexdigest()
-def parse_json(data):
-    if len(data) > MAX_JSON: raise ReleaseError('JSON size limit')
+def parse_json(data,limit=MAX_JSON):
+    if len(data) > limit: raise ReleaseError('JSON size limit')
     def unique(pairs):
         result = {}
         for key,value in pairs:
